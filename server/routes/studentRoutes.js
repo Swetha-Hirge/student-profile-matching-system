@@ -1,17 +1,38 @@
+// routes/studentRoutes.js
 const express = require('express');
 const router = express.Router();
 const studentController = require('../controllers/studentController');
 const { verifyToken, authorizeRole } = require('../middleware/auth');
-const { cacheMiddleware } = require('../middleware/cache'); // keep if you have it
 
-// Teachers only (change if you want wider access)
-router.get('/', verifyToken, authorizeRole('teacher'), cacheMiddleware?.('students:') || ((req,res,next)=>next()), studentController.getAllStudents);
-router.get('/:id', verifyToken, authorizeRole('teacher'), cacheMiddleware?.('student:') || ((req,res,next)=>next()), studentController.getStudentById);
+let cacheMiddleware = (_pfx, _ttl) => (req, res, next) => next(); // no-op fallback
+try {
+  // use the correct path if your file is named cacheMiddleware.js
+  ({ cacheMiddleware } = require('../middleware/cache'));
+} catch (_) { /* keep no-op */ }
 
-router.put('/:id', verifyToken, authorizeRole('teacher'), studentController.updateStudent);
-router.delete('/:id', verifyToken, authorizeRole('teacher'), studentController.deleteStudent);
+// List & get
+router.get(
+  '/',
+  verifyToken,
+  authorizeRole(['teacher', 'admin']),
+  cacheMiddleware('students', 60),
+  studentController.getAllStudents
+);
 
-router.get('/:id/recommendations', verifyToken, authorizeRole(['teacher','student']), studentController.getRecommendationsForStudent);
-router.post('/:id/recommendations', verifyToken, authorizeRole('teacher'), studentController.generateAndSaveTopRecommendation);
+router.get(
+  '/:id',
+  verifyToken,
+  authorizeRole(['teacher', 'admin']),
+  cacheMiddleware('student', 60),
+  studentController.getStudentById
+);
+
+// Update / delete (teacher can only touch their own students; admin can touch all)
+router.put('/:id', verifyToken, authorizeRole(['teacher', 'admin']), studentController.updateStudent);
+router.delete('/:id', verifyToken, authorizeRole(['teacher', 'admin']), studentController.deleteStudent);
+
+// Recommendations
+router.get('/:id/recommendations', verifyToken, authorizeRole(['teacher', 'student', 'admin']), studentController.getRecommendationsForStudent);
+router.post('/:id/recommendations', verifyToken, authorizeRole(['teacher', 'admin']), studentController.generateAndSaveTopRecommendation);
 
 module.exports = router;

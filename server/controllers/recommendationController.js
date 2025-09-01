@@ -1,102 +1,148 @@
+// controllers/recommendationController.js
+const { Op } = require('sequelize');
 const Recommendation = require('../models/recommendation');
 const Student = require('../models/student');
 const Activity = require('../models/activity');
+const Teacher = require('../models/teacher');
+const User = require('../models/user');
 
-// Create a new recommendation
+async function teacherOwnsStudent(reqUserId, studentId) {
+  const teacher = await Teacher.findOne({ where: { userId: reqUserId } });
+  if (!teacher) return { ok: false, code: 404, msg: 'Teacher profile not found' };
+  const student = await Student.findByPk(studentId);
+  if (!student) return { ok: false, code: 404, msg: 'Student not found' };
+  if (student.teacherId !== teacher.id) return { ok: false, code: 403, msg: 'Forbidden: not your student' };
+  return { ok: true, teacher, student };
+}
+
+// POST /api/recommendations  (teacher/admin)
 exports.createRecommendation = async (req, res) => {
   try {
     const { studentId, activityId, score } = req.body;
+    if (!studentId || !activityId || typeof score !== 'number')
+      return res.status(400).json({ error: 'studentId, activityId and numeric score are required' });
 
-    if (!studentId || !activityId || typeof score !== 'number') {
-      return res.status(400).json({ error: 'studentId, activityId, and score are required' });
+    // scope: teachers can only act on their own students
+    if (req.user.role === 'teacher') {
+      const gate = await teacherOwnsStudent(req.user.id, studentId);
+      if (!gate.ok) return res.status(gate.code).json({ error: gate.msg });
+    } else {
+      // admin path still validates existence
+      const s = await Student.findByPk(studentId);
+      if (!s) return res.status(404).json({ error: 'Student not found' });
     }
 
-    // Optional: Validate existence of related records
-    const student = await Student.findByPk(studentId);
-    const activity = await Activity.findByPk(activityId);
+    const act = await Activity.findByPk(activityId);
+    if (!act) return res.status(404).json({ error: 'Activity not found' });
 
-    if (!student || !activity) {
-      return res.status(404).json({ error: 'Student or Activity not found' });
-    }
-
-    const recommendation = await Recommendation.create({
-      studentId,
-      activityId,
-      score
-    });
-
-    res.status(201).json(recommendation);
+    const rec = await Recommendation.create({ studentId, activityId, score });
+    return res.status(201).json(rec);
   } catch (error) {
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({ error: 'Recommendation already exists for this student & activity' });
+    }
     res.status(500).json({ error: 'Failed to create recommendation', details: error.message });
   }
 };
 
-// Get all recommendations
+// GET /api/recommendations?studentId=&limit=&offset=&order=&dir=
 exports.getAllRecommendations = async (req, res) => {
   try {
-    const recommendations = await Recommendation.findAll({
+    const limit = Math.min(Math.max(parseInt(req.query.limit ?? '25', 10), 1), 100);
+    const offset = Math.max(parseInt(req.query.offset ?? '0', 10), 0);
+    const order = (req.query.order ?? 'id').toString();
+    const dir = (req.query.dir ?? 'DESC').toString().toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    const where = {};
+    if (req.query.studentId) where.studentId = parseInt(req.query.studentId, 10);
+
+    // teachers only see their own students' recommendations
+    if (req.user.role === 'teacher') {
+      const teacher = await Teacher.findOne({ where: { userId: req.user.id } });
+      if (!teacher) return res.status(404).json({ error: 'Teacher profile not found' });
+      // filter by students under this teacher
+      const myStudentIds = (await Student.findAll({ where: { teacherId: teacher.id }, attributes: ['id'] }))
+        .map(s => s.id);
+      where.studentId = where.studentId
+        ? { [Op.and]: [where.studentId, { [Op.in]: myStudentIds }] }
+        : { [Op.in]: myStudentIds };
+    }
+
+    const { rows, count } = await Recommendation.findAndCountAll({
+      where,
+      order: [[order, dir]],
+      limit,
+      offset,
       include: [
-        { model: Student, attributes: ['id', 'name'], as: 'Student' },
-        { model: Activity, attributes: ['id', 'title'], as: 'Activity' }
+        { model: Student, as: 'student', attributes: ['id', 'disability', 'learningStyle'],
+          include: [{ model: User, as: 'user', attributes: ['username', 'email'] }] },
+        { model: Activity, as: 'activity', attributes: ['id', 'title', 'difficulty', 'modality'] }
       ]
     });
-
-    res.status(200).json(recommendations);
+    res.json({ data: rows, meta: { total: count, limit, offset, order, dir, hasMore: offset + rows.length < count } });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch recommendations', details: error.message });
   }
 };
 
-// Get a single recommendation by ID
+// GET /api/recommendations/:id
 exports.getRecommendationById = async (req, res) => {
   try {
-    const recommendation = await Recommendation.findByPk(req.params.id, {
+    const rec = await Recommendation.findByPk(req.params.id, {
       include: [
-        { model: Student, attributes: ['id', 'name'], as: 'Student' },
-        { model: Activity, attributes: ['id', 'title'], as: 'Activity' }
+        { model: Student, as: 'student', attributes: ['id', 'disability', 'learningStyle'],
+          include: [{ model: User, as: 'user', attributes: ['username', 'email'] }] },
+        { model: Activity, as: 'activity', attributes: ['id', 'title', 'difficulty', 'modality'] }
       ]
     });
+    if (!rec) return res.status(404).json({ error: 'Recommendation not found' });
 
-    if (!recommendation) {
-      return res.status(404).json({ error: 'Recommendation not found' });
+    // teacher scope check
+    if (req.user.role === 'teacher') {
+      const ok = await teacherOwnsStudent(req.user.id, rec.studentId);
+      if (!ok.ok) return res.status(ok.code).json({ error: ok.msg });
     }
 
-    res.status(200).json(recommendation);
+    res.json(rec);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch recommendation', details: error.message });
   }
 };
 
-// Update recommendation score
+// PUT /api/recommendations/:id  (teacher can only update own students)
 exports.updateRecommendation = async (req, res) => {
   try {
     const { score } = req.body;
-    const recommendation = await Recommendation.findByPk(req.params.id);
+    const rec = await Recommendation.findByPk(req.params.id);
+    if (!rec) return res.status(404).json({ error: 'Recommendation not found' });
 
-    if (!recommendation) {
-      return res.status(404).json({ error: 'Recommendation not found' });
+    if (req.user.role === 'teacher') {
+      const ok = await teacherOwnsStudent(req.user.id, rec.studentId);
+      if (!ok.ok) return res.status(ok.code).json({ error: ok.msg });
     }
+    if (typeof score !== 'number') return res.status(400).json({ error: 'score must be a number (0..1)' });
 
-    recommendation.score = score;
-    await recommendation.save();
-
-    res.status(200).json(recommendation);
+    rec.score = score;
+    await rec.save();
+    res.json(rec);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update recommendation', details: error.message });
   }
 };
 
-// Delete recommendation
+// DELETE /api/recommendations/:id  (teacher can only delete own students)
 exports.deleteRecommendation = async (req, res) => {
   try {
-    const recommendation = await Recommendation.findByPk(req.params.id);
+    const rec = await Recommendation.findByPk(req.params.id);
+    if (!rec) return res.status(404).json({ error: 'Recommendation not found' });
 
-    if (!recommendation) {
-      return res.status(404).json({ error: 'Recommendation not found' });
+    if (req.user.role === 'teacher') {
+      const ok = await teacherOwnsStudent(req.user.id, rec.studentId);
+      if (!ok.ok) return res.status(ok.code).json({ error: ok.msg });
     }
 
-    await recommendation.destroy();
-    res.status(200).json({ message: 'Recommendation deleted successfully' });
+    await rec.destroy();
+    res.json({ message: 'Recommendation deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete recommendation', details: error.message });
   }

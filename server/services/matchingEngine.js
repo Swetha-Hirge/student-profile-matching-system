@@ -1,38 +1,44 @@
-// const Student = require('../models/student');
-// const Activity = require('../models/activity');
-
-// exports.matchActivities = async (studentId) => {
-//   const student = await Student.findByPk(studentId);
-//   const activities = await Activity.findAll();
-
-//   // Simple rule-based matching
-//   const results = activities.map((activity) => {
-//     let score = 0.5;
-//     if (student.learningStyle === 'visual' && activity.title.toLowerCase().includes('visual')) {
-//       score += 0.4;
-//     }
-//     return { activity, score };
-//   });
-
-//   return results.sort((a, b) => b.score - a.score);
-// };
-// Match student to best activity based on disability and learningStyle
+// services/matchingEngine.js
 const Activity = require('../models/activity');
 
-exports.getRecommendedActivities = async (student) => {
-  const allActivities = await Activity.findAll();
-  const recommendations = [];
+function norm(x) {
+  return (x || '').toString().trim().toLowerCase();
+}
 
-  for (const activity of allActivities) {
+function toTagSet(tags) {
+  if (!tags) return new Set();
+  if (Array.isArray(tags)) return new Set(tags.map(norm));
+  // support comma-separated string, JSON string, etc.
+  try {
+    const maybe = JSON.parse(tags);
+    if (Array.isArray(maybe)) return new Set(maybe.map(norm));
+  } catch (_) { /* not JSON */ }
+  return new Set(norm(tags).split(',').map(s => s.trim()).filter(Boolean));
+}
+
+exports.getRecommendedActivities = async (student) => {
+  const all = await Activity.findAll({
+    attributes: ['id', 'title', 'tags', 'difficulty', 'modality']
+  });
+
+  const ls = norm(student.learningStyle);
+  const dis = norm(student.disability);
+
+  const recs = [];
+  for (const a of all) {
+    const tagSet = toTagSet(a.tags);
     let score = 0;
 
-    if (student.learningStyle && activity.tags?.includes(student.learningStyle.toLowerCase())) score += 0.5;
-    if (student.disability && activity.tags?.includes(student.disability.toLowerCase())) score += 0.5;
+    if (ls && tagSet.has(ls)) score += 0.5;
+    if (dis && tagSet.has(dis)) score += 0.5;
 
-    if (score > 0) {
-      recommendations.push({ activityId: activity.id, score });
-    }
+    // small tie-breakers (optional)
+    if (!ls && a.modality && norm(a.modality) === 'visual') score += 0.1;
+    if (typeof a.difficulty === 'number') score += 0.01 * (5 - Math.min(Math.max(a.difficulty, 1), 5)); // prefer easier
+
+    if (score > 0) recs.push({ activityId: a.id, score });
   }
 
-  return recommendations.sort((a, b) => b.score - a.score);
+  recs.sort((a, b) => b.score - a.score);
+  return recs;
 };

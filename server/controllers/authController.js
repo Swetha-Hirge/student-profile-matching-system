@@ -1,21 +1,24 @@
+// controllers/authController.js
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { Op } = require('sequelize');                 // ✅ add
 const User = require('../models/user');
 const JWT_SECRET = process.env.JWT_SECRET || 'your_secret';
 
 const cookieOpts = {
   httpOnly: true,
   sameSite: 'lax',
-  secure: false,                    // set true only when behind HTTPS
-  maxAge: 7 * 24 * 60 * 60 * 1000,  // 7 days
+  secure: false,
+  maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
 exports.register = async (req, res) => {
   try {
     const { name, username: rawUsername, email, password, role } = req.body;
     const username = (rawUsername || name || '').trim();
+    const emailLc = email?.toLowerCase();
 
-    if (!username || !email || !password || !role) {
+    if (!username || !emailLc || !password || !role) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
 
@@ -24,35 +27,48 @@ exports.register = async (req, res) => {
       return res.status(400).json({ message: 'Invalid role' });
     }
 
-    const existing = await User.findOne({ where: { email: email.toLowerCase() } });
-    if (existing) return res.status(409).json({ error: 'Email already registered' });
+    // ✅ check both username + email
+    const dup = await User.findOne({
+      where: { [Op.or]: [{ email: emailLc }, { username }] }
+    });
+    if (dup) {
+      const field = dup.email === emailLc ? 'email' : 'username';
+      return res.status(409).json({ error: `Duplicate ${field}`, field });
+    }
 
     const hashed = await bcrypt.hash(password, 10);
     const user = await User.create({
       username,
-      email: email.toLowerCase(),
+      email: emailLc,
       password: hashed,
       role,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       message: 'User registered',
       user: { id: user.id, username: user.username, role: user.role, email: user.email },
     });
   } catch (err) {
     console.error('[auth.register]', err);
+    // Map common Sequelize errors cleanly
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({ error: 'Duplicate value', fields: err.errors?.map(e => e.path) });
+    }
+    if (err.name === 'SequelizeValidationError') {
+      return res.status(400).json({ error: 'Validation failed', details: err.errors?.map(e => ({ field: e.path, message: e.message })) });
+    }
     res.status(500).json({ error: 'Registration failed', details: err.message });
   }
 };
 
 exports.login = async (req, res) => {
   try {
-    const email = req.body.email?.toLowerCase();
+    const emailLc = req.body.email?.toLowerCase();
     const { password } = req.body;
 
-    if (!email || !password) return res.status(400).json({ error: 'Missing email or password' });
+    if (!emailLc || !password) return res.status(400).json({ error: 'Missing email or password' });
 
-    const user = await User.findOne({ where: { email } });
+    const user = await User.findOne({ where: { email: emailLc } });
     if (!user) return res.status(401).json({ error: 'Invalid email or password' });
 
     const ok = await bcrypt.compare(password, user.password);
@@ -63,7 +79,7 @@ exports.login = async (req, res) => {
 
     res.json({
       message: 'Logged in',
-      token, // optional (for Bearer flow)
+      token, // also return for Bearer usage
       user: { id: user.id, username: user.username, role: user.role, email: user.email },
     });
   } catch (err) {
@@ -73,11 +89,10 @@ exports.login = async (req, res) => {
 };
 
 exports.me = async (req, res) => {
-  // req.user set by verifyToken
   res.json({ user: req.user });
 };
 
-exports.logout = async (req, res) => {
+exports.logout = async (_req, res) => {
   res.clearCookie('token', { httpOnly: true, sameSite: 'lax', secure: false });
   res.json({ message: 'Logged out' });
 };
