@@ -1,17 +1,15 @@
 // src/pages/LoginPage.jsx
-import { useEffect, useState, useContext } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import './LoginPage.css';
-// If you have an AuthContext, we’ll use it if available:
-import { AuthContext } from '../context/authContext'; // adjust path if different
 
-const API_BASE = process.env.REACT_APP_API_BASE || ''; 
-// Use CRA proxy in dev (leave empty) OR set REACT_APP_API_BASE=http://localhost:5000
+import http from '../api/http';               // ✅ our axios instance (adds Bearer automatically)
+import { useAuth } from '../context/authContext'; // ✅ use the hook you just added
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const auth = useContext(AuthContext); // { user, setUser } if your context provides it
+  const location = useLocation();
+  const { user, setUser } = useAuth();
 
   const [form, setForm] = useState({
     email: localStorage.getItem('rememberEmail') || '',
@@ -22,14 +20,14 @@ export default function LoginPage() {
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [serverErr, setServerErr] = useState('');
+  const [forgotPw, setForgotPw] = useState(false);
 
   useEffect(() => {
-    // optional: if already logged in, redirect
-    if (auth?.user?.role) {
-      redirectByRole(auth.user.role);
+    if (user?.role) {
+      redirectByRole(user.role);
     }
-    // eslint-disable-next-line
-  }, [auth?.user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.role]);
 
   const onChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -43,14 +41,20 @@ export default function LoginPage() {
   };
 
   const redirectByRole = (role) => {
-    if (role === 'admin') return navigate('/admin');
-    if (role === 'teacher') return navigate('/teacher/dashboard');
-    return navigate('/student/dashboard'); // default
+    // Prefer redirecting back to where user came from (if present)
+    const from = location.state?.from?.pathname;
+    if (from) return navigate(from, { replace: true });
+
+    // Otherwise route by role under /app/*
+    if (role === 'admin') return navigate('/app/admin', { replace: true });
+    if (role === 'teacher') return navigate('/app/teacher/dashboard', { replace: true });
+    return navigate('/app/student/dashboard', { replace: true });
   };
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setServerErr('');
+
     const err = validate();
     if (err) return setServerErr(err);
 
@@ -62,30 +66,32 @@ export default function LoginPage() {
         password: form.password,
       };
 
-      // NOTE: keep withCredentials if your backend sets httpOnly cookies
-      const { data } = await axios.post(`${API_BASE}/api/auth/login`, payload, {
+      // withCredentials OK even if you mainly rely on Bearer
+      const { data } = await http.post('/api/auth/login', payload, {
         withCredentials: true,
         headers: { 'Content-Type': 'application/json' },
       });
 
-      // Remember email (optional UX)
+      // Persist token so our http client adds Authorization on next requests
+      if (data?.token) {
+        localStorage.setItem('access_token', data.token);
+      }
+
+      // Remember email UX
       if (form.remember) {
-        localStorage.setItem('rememberEmail', form.email.trim().toLowerCase());
+        localStorage.setItem('rememberEmail', payload.email);
       } else {
         localStorage.removeItem('rememberEmail');
       }
 
-      // If your API returns { user: { role, ... }, token? }
-      const role = data?.user?.role || data?.role;
-      if (auth?.setUser) {
-        auth.setUser(data.user || { role, email: form.email });
+      // Put user into context immediately
+      if (data?.user) {
+        setUser(data.user);
       }
 
-      if (role) {
-        redirectByRole(role);
-      } else {
-        navigate('/dashboard'); // generic fallback
-      }
+      // Redirect
+      const role = data?.user?.role || 'student';
+      redirectByRole(role);
     } catch (error) {
       const status = error?.response?.status;
       const msg =
@@ -111,6 +117,7 @@ export default function LoginPage() {
         <form className="login-form" onSubmit={onSubmit} noValidate>
           <div className="login-field">
             <label htmlFor="email">Email address</label>
+                        <div className="login-pw">
             <input
               id="email"
               name="email"
@@ -121,6 +128,7 @@ export default function LoginPage() {
               autoComplete="email"
               required
             />
+            </div>
           </div>
 
           <div className="login-field">
@@ -157,9 +165,7 @@ export default function LoginPage() {
               />
               Remember me
             </label>
-
-            {/* If you implement it later: */}
-            <Link to="/forgot-password" className="login-link">Forgot password?</Link>
+            <div onClick={()=>setForgotPw(!forgotPw)} className="login-link">{forgotPw? "Contact admin/teacher": "Forgot password?"}</div>
           </div>
 
           <button className="login-submit" type="submit" disabled={loading}>

@@ -6,10 +6,10 @@ export default function LandingPage() {
   return (
     <div className="lp-root">
       <div className="lp-bg-grid" aria-hidden="true" />
-      <main className="lp-container">
+      <main className="lp-container" role="main">
         <section className="lp-hero">
-          <span className="lp-pill">
-            <span className="lp-dot" />
+          <span className="lp-pill" aria-label="Tagline">
+            <span className="lp-dot" aria-hidden="true" />
             Smarter learning, tailored to every student
           </span>
 
@@ -26,15 +26,15 @@ export default function LandingPage() {
           <p className="lp-note">Admin / Teacher / Student — please log in to continue.</p>
         </section>
 
-        <aside className="lp-card">
+        <aside className="lp-card" aria-labelledby="why-works">
           <header className="lp-card__header">
-            <div className="lp-icon">
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <div className="lp-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor" focusable="false">
                 <path d="M12 2a10 10 0 1 0 .001 20.001A10 10 0 0 0 12 2Zm1 14h-2v-2h2v2Zm0-4h-2V6h2v6Z" />
               </svg>
             </div>
             <div>
-              <h3 className="lp-card__title">Why this works</h3>
+              <h3 id="why-works" className="lp-card__title">Why this works</h3>
               <p className="lp-card__meta">Adaptive matching · Progress-aware · Accessible UI</p>
             </div>
           </header>
@@ -46,7 +46,7 @@ export default function LandingPage() {
             <Feature title="Feedback" text="Close the loop and improve next picks." />
           </div>
 
-          <div className="lp-snippet">
+          <div className="lp-snippet" aria-label="API example">
             <code className="lp-code">GET /api/recommendations</code>
             <div className="lp-snippet__text">
               Return top-N activities for a student using profile and past feedback.

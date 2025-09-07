@@ -1,0 +1,222 @@
+/* src/pages/admin/AdminUsers.css */
+
+/* === Light theme overrides === */
+:root {
+  --bg: #f1f5fb;
+  --bg2: #e9eef6;
+  --card: #f9fbff;
+  --ring: #cdd9e8;
+  --muted: #555;
+  --text: #1a1a1a;
+  --white: #fff;
+  --primary: #2f92f2;
+  --primary2: #1e74d8;
+  --ok: #2ecc71;
+  --warn: #f1c40f;
+  --err: #e74c3c;
+  --shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  --radius: 12px;
+}
+
+.admin-wrap {
+  color: var(--text);
+  padding: 16px;
+  background: radial-gradient(
+      1000px 700px at 80% -10%,
+      #15326b 0%,
+      transparent 60%
+    ),
+    linear-gradient(135deg, var(--bg), var(--bg2));
+}
+
+/* Header */
+.admin-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.admin-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  color: #000;
+}
+.admin-subtitle {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.admin-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Buttons */
+.btn {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--ring);
+  background: #fff;
+  color: #1a1a1a;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.btn:hover {
+  background: #f0f4fa;
+}
+.btn--primary {
+  background: linear-gradient(180deg, var(--primary), var(--primary2));
+  color: var(--white);
+  border: none;
+}
+
+/* Card */
+.admin-card {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.08),
+    rgba(255, 255, 255, 0.06)
+  ) !important;
+  border: 1px solid var(--ring);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+/* Toolbar */
+.input-wrap input {
+  background: #fff;
+  color: #1a1a1a;
+  border: 1px solid var(--ring);
+}
+.filters select {
+  border-radius: 10%;
+}
+.filters {
+  display: flex;
+  padding: 10px;
+  gap: 10px;
+}
+.sorter {
+  gap: 10px;
+}
+
+.sorter button {
+  background-color: var(--primary);
+  color: var(--white);
+  border-radius: 10%;
+  border: Var(--white) solid 1px;
+  height: 25px;
+  width: 100px;
+  margin-left: 10px;
+}
+.chip {
+  background: #fff;
+  color: #333;
+  border: 1px solid var(--ring);
+}
+.chip--active {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* Table */
+.table-wrap {
+  overflow: auto;
+  border-radius: 10px;
+}
+.tbl {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 720px;
+  background: #fff;
+}
+.tbl thead th {
+  text-align: left;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 12px 10px;
+  color: var(--primary);
+  background: #f0f4fa;
+  border-bottom: 1px solid var(--ring);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.tbl tbody td {
+  padding: 12px 10px;
+  border-top: 1px solid #e6ebf3;
+  color: #1a1a1a;
+}
+.tbl tbody td.strong {
+  font-weight: 700;
+  color: #000;
+}
+.tbl tbody td.muted {
+  color: #555;
+}
+/* .tbl tbody tr:nth-child(even) {
+  background: #f9fbff;
+}
+.tbl tbody tr:nth-child(odd) {
+  background: #fff;
+} */
+.tbl tbody tr:hover {
+  background: #e8f0ff;
+  border-radius: 50%;
+}
+
+/* Badges */
+.badge {
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge--admin {
+  background: #d4ecff;
+  color: #004a80;
+}
+.badge--teacher {
+  background: #fff3cd;
+  color: #805a00;
+}
+.badge--student {
+  background: #d7fdd7;
+  color: #0b5a0b;
+}
+
+/* Empty state */
+.admin-empty {
+  text-align: center;
+  padding: 28px;
+  color: #666;
+  border: 1px dashed var(--ring);
+  border-radius: 10px;
+  background: #fafafa;
+}
+
+.pager{
+  display: flex;
+  padding: 10px;
+  gap: 2px;
+}
+
+.ml5{
+  margin-left: 5px;
+}
+
+.mr5{
+  margin-right: 5px;
+}
+
+.pager-pages{
+  padding-top: 5px;
+}
+
+.mr26{
+    margin-right: 25px;
+}

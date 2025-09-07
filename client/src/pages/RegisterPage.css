@@ -7,12 +7,12 @@
 }
 
 .reg-root{
-  min-height:100dvh;
+  min-height:100svh; /* better on mobile than 100dvh */
   background:
     radial-gradient(1000px 700px at 80% -10%, #15326b 0%, transparent 60%),
     linear-gradient(135deg, var(--bg), var(--bg2));
   display:grid; place-items:center;
-  padding:32px 16px; color:var(--text);
+  padding:32px clamp(16px,3vw,40px); color:var(--text);
 }
 
 .reg-card{
@@ -50,6 +50,7 @@
 .reg-field label{
   display:block; margin-bottom:6px; font-weight:700; font-size:13px;
 }
+
 .reg-field input, .reg-field select{
   width:100%; padding:12px 12px;
   background:#0b1430; color:var(--text);
@@ -57,10 +58,18 @@
   transition:border .2s ease, box-shadow .2s ease;
   outline:none;
 }
-.reg-field input:focus, .reg-field select:focus{
-  border-color: var(--primary); box-shadow: 0 0 0 3px rgba(78,169,255,.2);
-}
+
 .reg-field input::placeholder{ color:#8293b6; }
+
+/* Stronger focus styles for a11y */
+.reg-field input:focus-visible,
+.reg-field select:focus-visible,
+.reg-toggle:focus-visible,
+.reg-submit:focus-visible {
+  outline:none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(78,169,255,.35);
+}
 
 .reg-pw{ position:relative; display:flex; align-items:center; }
 .reg-pw input{ padding-right:84px; }
@@ -87,3 +96,20 @@
 }
 .reg-footer a{ color:#a6d4ff; text-decoration:none; font-weight:700; }
 .reg-footer a:hover{ text-decoration:underline; }
+
+/* Mobile polish */
+@media (max-width: 480px){
+  .reg-card{ padding:22px; border-radius:20px; }
+  .reg-header h1{ font-size:24px; }
+  .reg-submit{ padding:14px 18px; }
+}
+
+/* Reduced motion & high contrast */
+@media (prefers-reduced-motion: reduce){
+  * { transition: none !important; }
+}
+@media (forced-colors: active){
+  .reg-card, .reg-field input, .reg-field select, .reg-toggle {
+    border: 1px solid CanvasText;
+  }
+}

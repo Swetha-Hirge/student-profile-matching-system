@@ -12,9 +12,11 @@ export default function NotificationBell() {
     const fetchNotifications = async () => {
       try {
         const { data } = await http.get('/api/notifications');
-        setItems(data);
+        // ✅ Make sure it's always an array
+        setItems(Array.isArray(data) ? data : []);
       } catch (e) {
-        // console.log('Error fetching notifications', e);
+        console.warn('Error fetching notifications', e);
+        setItems([]); // fallback
       }
     };
     fetchNotifications();
@@ -24,9 +26,13 @@ export default function NotificationBell() {
 
   if (!user) return null;
 
+  const unreadCount = Array.isArray(items)
+    ? items.filter((n) => !n.isRead).length
+    : 0;
+
   return (
-    <button className="notif-bell">
-      🔔 {items.filter(n => !n.isRead).length}
+    <button className="notif-bell" type="button">
+      🔔 {unreadCount}
     </button>
   );
 }

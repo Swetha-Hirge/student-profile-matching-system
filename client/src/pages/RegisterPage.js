@@ -1,22 +1,18 @@
 // src/pages/RegisterPage.jsx
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import './RegisterPage.css';
-
-const API_BASE = process.env.REACT_APP_API_BASE || ''; 
-// If you have CRA proxy set to http://localhost:5000, keep API_BASE = ''.
-// Otherwise set REACT_APP_API_BASE="http://localhost:5000" in .env
+import http from '../api/http';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
   const [form, setForm] = useState({
-    name: '',
+    username: '',
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'student', // 'student' | 'teacher'
   });
+
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [serverErr, setServerErr] = useState('');
@@ -27,11 +23,10 @@ export default function RegisterPage() {
   };
 
   const validate = () => {
-    if (!form.name.trim()) return 'Please enter your name.';
+    if (!form.username.trim()) return 'Please enter your full name or username.';
     if (!/^\S+@\S+\.\S+$/.test(form.email)) return 'Please enter a valid email.';
     if (form.password.length < 6) return 'Password must be at least 6 characters.';
     if (form.password !== form.confirmPassword) return 'Passwords do not match.';
-    if (!['student', 'teacher'].includes(form.role)) return 'Please select a valid role.';
     return '';
   };
 
@@ -43,30 +38,28 @@ export default function RegisterPage() {
 
     try {
       setLoading(true);
-      // Adjust keys if your backend expects different names (e.g., "username")
+      // Public admin self-register (org policy)
       const payload = {
-        name: form.name.trim(),
+        username: form.username.trim(),
+        name: form.username.trim(),            // harmless fallback for backend
         email: form.email.trim().toLowerCase(),
         password: form.password,
-        role: form.role,
+        role: 'admin',                         // <-- force admin
       };
 
-      const res = await axios.post(`${API_BASE}/api/auth/register`, payload, {
+      await http.post('/api/auth/register', payload, {
         withCredentials: true,
         headers: { 'Content-Type': 'application/json' },
       });
 
-      // If success, send the user to login
-      alert('Registration successful. Please log in.');
-      navigate('/login');
+      alert('Admin account created. Please log in.');
+      navigate('/login', { replace: true });
     } catch (error) {
-      // Common API errors
+      const status = error?.response?.status;
       const msg =
         error?.response?.data?.message ||
         error?.response?.data?.error ||
-        (error?.response?.status === 409
-          ? 'Email already registered.'
-          : 'Registration failed. Please try again.');
+        (status === 409 ? 'Email already registered.' : 'Registration failed. Please try again.');
       setServerErr(msg);
     } finally {
       setLoading(false);
@@ -77,21 +70,21 @@ export default function RegisterPage() {
     <div className="reg-root">
       <div className="reg-card">
         <header className="reg-header">
-          <h1>Create your account</h1>
-          <p>Join the Student Matching System</p>
+          <h1>Create Admin Account</h1>
+          <p>This registration is for organization administrators only.</p>
         </header>
 
         {serverErr ? <div className="reg-alert">{serverErr}</div> : null}
 
         <form className="reg-form" onSubmit={onSubmit} noValidate>
           <div className="reg-field">
-            <label htmlFor="name">Full name</label>
+            <label htmlFor="username">Full name / Username</label>
             <input
-              id="name"
-              name="name"
+              id="username"
+              name="username"
               type="text"
               placeholder="e.g., Alex Johnson"
-              value={form.name}
+              value={form.username}
               onChange={onChange}
               autoComplete="name"
               required
@@ -99,12 +92,12 @@ export default function RegisterPage() {
           </div>
 
           <div className="reg-field">
-            <label htmlFor="email">Email address</label>
+            <label htmlFor="email">Work email</label>
             <input
               id="email"
               name="email"
               type="email"
-              placeholder="you@example.com"
+              placeholder="admin@yourorg.com"
               value={form.email}
               onChange={onChange}
               autoComplete="email"
@@ -154,17 +147,9 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          <div className="reg-field">
-            <label htmlFor="role">Role</label>
-            <select id="role" name="role" value={form.role} onChange={onChange} required>
-              <option value="student">Student</option>
-              <option value="teacher">Teacher</option>
-              {/* If admin signups are restricted, handle separately in backend */}
-            </select>
-          </div>
-
+          {/* No role picker — teachers are created by admin; students by teachers */}
           <button className="reg-submit" type="submit" disabled={loading}>
-            {loading ? 'Creating account…' : 'Create account'}
+            {loading ? 'Creating admin…' : 'Create admin account'}
           </button>
         </form>
 
