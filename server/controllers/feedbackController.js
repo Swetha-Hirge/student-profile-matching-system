@@ -1,69 +1,106 @@
+// server/controllers/feedbackController.js
 const { Op, fn, col, literal } = require('sequelize');
-const Feedback = require('../models/feedback');
+const Feedback = require('../models/feedback');         // assumes: id, recommendationId, studentId, rating, helpful, comment, difficulty
 const Recommendation = require('../models/recommendation');
 const Student = require('../models/student');
 const Teacher = require('../models/teacher');
 const Activity = require('../models/activity');
+// const { Feedback, Recommendation, Student } = require('../models'); 
 
-/**
- * Helper: teacher owns this student?
- */
-async function teacherOwnsStudent(userId, studentId) {
-  const teacher = await Teacher.findOne({ where: { userId } });
-  if (!teacher) return false;
-  const s = await Student.findByPk(studentId);
-  return s && s.teacherId === teacher.id;
-}
-
-/**
- * POST /api/recommendations/:id/feedback
- * Student (owner) leaves feedback for a recommendation they received.
- */
-exports.createForRecommendation = async (req, res) => {
+// POST /api/recommendations/:id/feedback  (student only)
+exports.createFeedback = async (req, res) => {
   try {
     const recId = Number(req.params.id);
-    if (!Number.isInteger(recId)) return res.status(400).json({ error: 'Invalid recommendation id' });
+    if (!Number.isInteger(recId)) {
+      return res.status(400).json({ error: 'Invalid recommendation id' });
+    }
 
+    // 1) recommendation exists?
     const rec = await Recommendation.findByPk(recId);
     if (!rec) return res.status(404).json({ error: 'Recommendation not found' });
 
-    // permissions
-    if (req.user.role === 'student') {
-      const me = await Student.findOne({ where: { userId: req.user.id } });
-      if (!me) return res.status(404).json({ error: 'Student profile not found' });
-      if (me.id !== rec.studentId) return res.status(403).json({ error: 'Forbidden: not your recommendation' });
-    } else if (req.user.role === 'teacher') {
-      const ok = await teacherOwnsStudent(req.user.id, rec.studentId);
-      if (!ok) return res.status(403).json({ error: 'Forbidden: not your student' });
-    } // admin allowed
+    // 2) find student profile for current user
+    const me = await Student.findOne({ where: { userId: req.user.id } });
+    if (!me) return res.status(404).json({ error: 'Student profile not found' });
 
-    const { rating, helpful = null, comment = '' } = req.body;
-    if (!(Number.isInteger(rating) && rating >= 1 && rating <= 5)) {
-      return res.status(400).json({ error: 'rating must be an integer 1..5' });
+    // 3) must own this recommendation
+    if (rec.studentId !== me.id) {
+      return res.status(403).json({ error: 'Forbidden: not your recommendation' });
     }
 
-    const fb = await Feedback.create({
-      recommendationId: rec.id,
-      studentId: rec.studentId,
-      activityId: rec.activityId,
-      rating,
-      helpful: typeof helpful === 'boolean' ? helpful : null,
-      comment: String(comment || '').trim(),
-      createdBy: req.user.role
+    // 4) prevent duplicate feedback
+    const { rating, helpful, difficulty, comment } = req.body;
+    const [fb, created] = await Feedback.findOrCreate({
+      where: { recommendationId: rec.id, studentId: me.id },
+      defaults: {
+        rating: typeof rating === 'number' ? rating : null,
+        helpful: typeof helpful === 'boolean' ? helpful : null,
+        difficulty: difficulty || null,
+        comment: comment?.trim() || null,
+      },
     });
 
-    res.status(201).json({ message: 'Feedback saved', data: fb });
+    // If already existed, maybe update instead of reject
+    if (!created) {
+      fb.rating = rating ?? fb.rating;
+      fb.helpful = helpful ?? fb.helpful;
+      fb.difficulty = difficulty ?? fb.difficulty;
+      fb.comment = comment ?? fb.comment;
+      await fb.save();
+    }
+
+    return res.status(created ? 201 : 200).json({
+      message: created ? 'Feedback saved' : 'Feedback updated',
+      data: fb,
+    });
   } catch (err) {
     console.error('[feedback.create]', err);
-    res.status(500).json({ error: 'Failed to create feedback', details: err.message });
+    return res.status(500).json({ error: 'Failed to save feedback', details: err.message });
   }
 };
 
-/**
- * GET /api/recommendations/:id/feedback
- * View all feedback for a recommendation (student owner, teacher owner, or admin).
- */
-exports.listForRecommendation = async (req, res) => {
+
+exports.createOrUpdateMine = async (req, res) => {
+  try {
+    const recId = Number(req.params.id);
+    if (!Number.isInteger(recId)) return res.status(400).json({ error: 'Invalid recommendation id' });
+
+    // find my student profile
+    const me = await Student.findOne({ where: { userId: req.user.id } });
+    if (!me) return res.status(404).json({ error: 'Student profile not found' });
+
+    // recommendation must belong to me
+    const rec = await Recommendation.findByPk(recId);
+    if (!rec) return res.status(404).json({ error: 'Recommendation not found' });
+    if (rec.studentId !== me.id) {
+      return res.status(403).json({ error: 'Forbidden: not your recommendation' });
+    }
+
+    const { rating, helpful, comment, difficulty } = req.body;
+    const payload = {
+      rating: typeof rating === 'number' ? Math.max(1, Math.min(5, rating)) : null,
+      helpful: typeof helpful === 'boolean' ? helpful : null,
+      comment: typeof comment === 'string' ? comment.trim().slice(0, 500) : null,
+      difficulty: typeof difficulty === 'string' ? difficulty.trim().slice(0, 32) : null,
+    };
+
+    // upsert on (recommendationId, studentId)
+    const [fb, created] = await Feedback.findOrCreate({
+      where: { recommendationId: recId, studentId: me.id },
+      defaults: { recommendationId: recId, studentId: me.id, ...payload },
+    });
+    if (!created) {
+      await fb.update(payload);
+    }
+
+    res.status(created ? 201 : 200).json({ message: created ? 'Feedback created' : 'Feedback updated', data: fb });
+  } catch (err) {
+    console.error('[feedback.createOrUpdateMine]', err);
+    res.status(500).json({ error: 'Failed to save feedback', details: err.message });
+  }
+};
+
+exports.getForRecommendation = async (req, res) => {
   try {
     const recId = Number(req.params.id);
     if (!Number.isInteger(recId)) return res.status(400).json({ error: 'Invalid recommendation id' });
@@ -71,143 +108,76 @@ exports.listForRecommendation = async (req, res) => {
     const rec = await Recommendation.findByPk(recId);
     if (!rec) return res.status(404).json({ error: 'Recommendation not found' });
 
+    // students can only see their own record
     if (req.user.role === 'student') {
       const me = await Student.findOne({ where: { userId: req.user.id } });
       if (!me) return res.status(404).json({ error: 'Student profile not found' });
-      if (me.id !== rec.studentId) return res.status(403).json({ error: 'Forbidden' });
-    } else if (req.user.role === 'teacher') {
-      const ok = await teacherOwnsStudent(req.user.id, rec.studentId);
-      if (!ok) return res.status(403).json({ error: 'Forbidden' });
+      if (rec.studentId !== me.id) return res.status(403).json({ error: 'Forbidden' });
+
+      const mine = await Feedback.findOne({ where: { recommendationId: recId, studentId: me.id } });
+      return res.json({ data: mine ? [mine] : [] });
     }
 
-    const list = await Feedback.findAll({
-      where: { recommendationId: rec.id },
-      order: [['createdAt', 'DESC']]
-    });
-
-    res.json({ data: list });
-  } catch (err) {
-    console.error('[feedback.listForRecommendation]', err);
-    res.status(500).json({ error: 'Failed to load feedback', details: err.message });
-  }
-};
-
-/**
- * GET /api/students/:studentId/feedback
- * Teacher (owner) or admin can see a student's feedback history. Student can see own.
- */
-exports.listForStudent = async (req, res) => {
-  try {
-    const sid = Number(req.params.studentId);
-    if (!Number.isInteger(sid)) return res.status(400).json({ error: 'Invalid student id' });
-
-    if (req.user.role === 'student') {
-      const me = await Student.findOne({ where: { userId: req.user.id } });
-      if (!me || me.id !== sid) return res.status(403).json({ error: 'Forbidden' });
-    } else if (req.user.role === 'teacher') {
-      const ok = await teacherOwnsStudent(req.user.id, sid);
-      if (!ok) return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    const list = await Feedback.findAll({
-      where: { studentId: sid },
-      include: [{ model: Activity, attributes: ['id', 'title', 'difficulty', 'type'] }],
-      order: [['createdAt', 'DESC']]
-    });
-    res.json({ data: list });
-  } catch (err) {
-    console.error('[feedback.listForStudent]', err);
-    res.status(500).json({ error: 'Failed to load feedback', details: err.message });
-  }
-};
-
-/**
- * GET /api/activities/:activityId/feedback/summary
- * Public-ish aggregate (but protect to teacher/admin if you prefer)
- */
-exports.summaryForActivity = async (req, res) => {
-  try {
-    const aid = Number(req.params.activityId);
-    if (!Number.isInteger(aid)) return res.status(400).json({ error: 'Invalid activity id' });
-
-    const rows = await Feedback.findAll({
-      where: { activityId: aid },
-      attributes: [
-        [fn('COUNT', col('id')), 'count'],
-        [fn('AVG', col('rating')), 'avgRating'],
-        [fn('SUM', literal(`CASE WHEN "helpful" = true THEN 1 ELSE 0 END`)), 'helpfulCount']
-      ]
-    });
-
-    const { count, avgRating, helpfulCount } = rows?.[0]?.dataValues || {};
-    res.json({
-      activityId: aid,
-      count: Number(count || 0),
-      avgRating: avgRating ? Number(avgRating).toFixed(2) : null,
-      helpfulCount: Number(helpfulCount || 0)
-    });
-  } catch (err) {
-    console.error('[feedback.summaryForActivity]', err);
-    res.status(500).json({ error: 'Failed to build summary', details: err.message });
-  }
-};
-
-/**
- * PUT /api/feedback/:id
- * Student can edit their own feedback; teacher/admin can edit all (optional).
- */
-exports.update = async (req, res) => {
-  try {
-    const fid = Number(req.params.id);
-    if (!Number.isInteger(fid)) return res.status(400).json({ error: 'Invalid feedback id' });
-
-    const fb = await Feedback.findByPk(fid);
-    if (!fb) return res.status(404).json({ error: 'Feedback not found' });
-
-    if (req.user.role === 'student') {
-      const me = await Student.findOne({ where: { userId: req.user.id } });
-      if (!me || me.id !== fb.studentId) return res.status(403).json({ error: 'Forbidden' });
-    } else if (req.user.role === 'teacher') {
-      const ok = await teacherOwnsStudent(req.user.id, fb.studentId);
-      if (!ok) return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    const { rating, helpful, comment } = req.body;
-    if (rating !== undefined) {
-      if (!(Number.isInteger(rating) && rating >= 1 && rating <= 5)) {
-        return res.status(400).json({ error: 'rating must be 1..5' });
+    // teacher can only see feedback of their students
+    if (req.user.role === 'teacher') {
+      const t = await Teacher.findOne({ where: { userId: req.user.id } });
+      if (!t) return res.status(404).json({ error: 'Teacher profile not found' });
+      if (rec.studentId && rec.studentId !== t.id) {
+        // rec.studentId stores Student.id, not Teacher.id; verify ownership through Student.teacherId
+        const stu = await Student.findByPk(rec.studentId);
+        if (!stu || stu.teacherId !== t.id) {
+          return res.status(403).json({ error: 'Forbidden: not your student' });
+        }
       }
-      fb.rating = rating;
     }
-    if (helpful !== undefined) fb.helpful = !!helpful;
-    if (comment !== undefined) fb.comment = String(comment).trim();
 
-    await fb.save();
-    res.json({ message: 'Updated', data: fb });
+    // admin/teacher: list (simple pagination)
+    const limit = Math.min(Math.max(parseInt(req.query.limit ?? '50', 10), 1), 200);
+    const offset = Math.max(parseInt(req.query.offset ?? '0', 10), 0);
+
+    const list = await Feedback.findAll({
+      where: { recommendationId: recId },
+      order: [['updatedAt', 'DESC']],
+      limit,
+      offset,
+    });
+
+    res.json({ data: list, meta: { limit, offset, count: list.length } });
   } catch (err) {
-    console.error('[feedback.update]', err);
-    res.status(500).json({ error: 'Failed to update feedback', details: err.message });
+    console.error('[feedback.getForRecommendation]', err);
+    res.status(500).json({ error: 'Failed to fetch feedback', details: err.message });
   }
 };
 
-/**
- * DELETE /api/feedback/:id  (admin only by default)
- */
-exports.remove = async (req, res) => {
+exports.activitySummary = async (req, res) => {
   try {
-    const fid = Number(req.params.id);
-    if (!Number.isInteger(fid)) return res.status(400).json({ error: 'Invalid feedback id' });
+    const activityId = Number(req.params.activityId);
+    if (!Number.isInteger(activityId)) return res.status(400).json({ error: 'Invalid activity id' });
 
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Admin only' });
-    }
-    const fb = await Feedback.findByPk(fid);
-    if (!fb) return res.status(404).json({ error: 'Feedback not found' });
+    const exists = await Activity.findByPk(activityId);
+    if (!exists) return res.status(404).json({ error: 'Activity not found' });
 
-    await fb.destroy();
-    res.json({ message: 'Deleted' });
+    // join Feedback → Recommendation to filter by activityId
+    const rows = await Feedback.findAll({
+      attributes: [
+        [fn('COUNT', col('Feedback.id')), 'count'],
+        [fn('AVG', col('Feedback.rating')), 'avgRating'],
+        [literal(`AVG(CASE WHEN "Feedback"."helpful" = true THEN 1 ELSE 0 END)`), 'helpfulPct'],
+      ],
+      include: [{ model: Recommendation, attributes: [], where: { activityId } }],
+      raw: true,
+    });
+
+    const agg = rows?.[0] || { count: 0, avgRating: null, helpfulPct: null };
+    res.json({
+      data: {
+        count: Number(agg.count || 0),
+        avgRating: agg.avgRating !== null ? Number(agg.avgRating).toFixed(2) : null,
+        helpfulPct: agg.helpfulPct !== null ? Math.round(Number(agg.helpfulPct) * 100) : null,
+      },
+    });
   } catch (err) {
-    console.error('[feedback.delete]', err);
-    res.status(500).json({ error: 'Failed to delete feedback', details: err.message });
+    console.error('[feedback.activitySummary]', err);
+    res.status(500).json({ error: 'Failed to aggregate feedback', details: err.message });
   }
 };

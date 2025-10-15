@@ -11,63 +11,112 @@ export default function TeacherDashboard() {
   const [activities, setActivities] = useState([]);
   const [recs, setRecs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [hint, setHint] = useState(''); // shows soft errors like 404 on a single endpoint
+  const [hint, setHint] = useState('');
+
+  // --- NEW: quick recommend form state ---
+  const [recForm, setRecForm] = useState({ studentId: '', activityId: '', score: 1.0 });
+  const [recLoading, setRecLoading] = useState(false);
+  const [recErr, setRecErr] = useState('');
+  const [recSuccess, setRecSuccess] = useState('');
 
   const asArray = (x) => (Array.isArray(x) ? x : (x && Array.isArray(x.data) ? x.data : []));
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadAll = async () => {
+    setLoading(true);
+    setHint('');
+    const [s, a, r] = await Promise.allSettled([
+      http.get('/api/students'),
+      http.get('/api/activities?limit=50'),
+      http.get('/api/recommendations?limit=50'),
+    ]);
 
-    (async () => {
-      setLoading(true);
-      setHint('');
-      const [s, a, r] = await Promise.allSettled([
-        http.get('/api/students'),
-        http.get('/api/activities?limit=50'),
-        http.get('/api/recommendations?limit=50'),
-      ]);
+    // students
+    if (s.status === 'fulfilled') setStudents(asArray(s.value.data));
+    else {
+      setStudents([]);
+      setHint((h) => h || 'Could not load students.');
+    }
 
-      if (cancelled) return;
+    // activities
+    if (a.status === 'fulfilled') setActivities(asArray(a.value.data));
+    else {
+      setActivities([]);
+      setHint((h) => h || 'Could not load activities.');
+    }
 
-      // students
-      if (s.status === 'fulfilled') setStudents(asArray(s.value.data));
-      else {
-        setStudents([]);
-        setHint((h) => h || 'Could not load students.');
-      }
-
-      // activities
-      if (a.status === 'fulfilled') setActivities(asArray(a.value.data));
-      else {
-        setActivities([]);
-        setHint((h) => h || 'Could not load activities.');
-      }
-
-      // recommendations
-      if (r.status === 'fulfilled') setRecs(asArray(r.value.data));
-      else {
-        setRecs([]);
-        // common case: route not mounted → 404
-        const code = r.reason?.response?.status;
-        const msg = code === 404
+    // recommendations
+    if (r.status === 'fulfilled') setRecs(asArray(r.value.data));
+    else {
+      setRecs([]);
+      const code = r.reason?.response?.status;
+      const msg =
+        code === 404
           ? 'Recommendations API not found (404). Check your /api/recommendations route.'
           : 'Could not load recommendations.';
-        setHint((h) => h || msg);
-      }
+      setHint((h) => h || msg);
+    }
 
-      setLoading(false);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!cancelled) await loadAll();
     })();
-
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Normalize recommendation fields from either eager-loaded association names
+  // helpers for rec table
   const recStudent = (r) => r.student?.user?.username || r.Student?.user?.username || r.studentId;
   const recActivity = (r) => r.activity?.title || r.Activity?.title || r.activityId;
   const recScore = (r) => {
     const n = typeof r.score === 'number' ? r.score : Number(r.score);
     return Number.isFinite(n) ? n.toFixed(2) : r.score ?? '-';
-    };
+  };
+
+  // --- NEW: quick recommend form handlers ---
+  const onRecChange = (e) => {
+    const { name, value } = e.target;
+    setRecForm((f) => ({ ...f, [name]: value }));
+  };
+
+  const submitRecommendation = async (e) => {
+    e.preventDefault();
+    setRecErr('');
+    setRecSuccess('');
+
+    if (!recForm.studentId || !recForm.activityId) {
+      return setRecErr('Student and Activity are required.');
+    }
+
+    try {
+      setRecLoading(true);
+      await http.post('/api/recommendations', {
+        studentId: Number(recForm.studentId),
+        activityId: Number(recForm.activityId),
+        score: Number(recForm.score || 1),
+      });
+
+      setRecSuccess('✅ Recommendation saved.');
+      // refresh the latest list
+      const { data } = await http.get('/api/recommendations?limit=50');
+      setRecs(asArray(data));
+
+      // optional: reset activity/score only
+      setRecForm((f) => ({ ...f, activityId: '', score: 1.0 }));
+    } catch (err) {
+      setRecErr(
+        err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          'Failed to save recommendation.'
+      );
+    } finally {
+      setRecLoading(false);
+    }
+  };
 
   return (
     <div className="db-root db-hasTop">
@@ -77,7 +126,9 @@ export default function TeacherDashboard() {
           <div className="db-subtitle">Welcome, {user?.username}</div>
         </div>
         <div className="db-actions">
-          <Link to="/app/teacher/students/create" className="db-btn db-btn--primary">Add Student</Link>
+          <Link to="/app/teacher/students/create" className="db-btn db-btn--primary">
+            Add Student
+          </Link>
         </div>
       </div>
 
@@ -98,7 +149,6 @@ export default function TeacherDashboard() {
         <section className="db-card db-card--half">
           <div className="db-card__head">
             <h3 className="db-card__title">My Students</h3>
-            {/* Keep only one Add button overall (header). */}
           </div>
           {students.length ? (
             <div style={{ overflowX: 'auto' }}>
@@ -124,7 +174,63 @@ export default function TeacherDashboard() {
           ) : <div className="db-empty">No students yet.</div>}
         </section>
 
-        {/* Recommendations */}
+        {/* --- NEW: Quick Recommendation Form --- */}
+        <section className="db-card db-card--half">
+          <div className="db-card__head">
+            <h3 className="db-card__title">➕ New Recommendation</h3>
+          </div>
+
+          {recErr && <div className="db-alert db-alert--error">{recErr}</div>}
+          {recSuccess && <div className="db-alert db-alert--success">{recSuccess}</div>}
+
+          <form onSubmit={submitRecommendation} style={{ display: 'grid', gap: 10 }}>
+            <select
+              name="studentId"
+              value={recForm.studentId}
+              onChange={onRecChange}
+              required
+            >
+              <option value="">-- Select Student --</option>
+              {students.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.user?.username} {s.disability ? `(${s.disability})` : ''}
+                </option>
+              ))}
+            </select>
+
+            <select
+              name="activityId"
+              value={recForm.activityId}
+              onChange={onRecChange}
+              required
+            >
+              <option value="">-- Select Activity --</option>
+              {activities.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.title} {a.difficulty ? `(Diff ${a.difficulty})` : ''}
+                </option>
+              ))}
+            </select>
+
+            <input
+              type="number"
+              name="score"
+              step="0.01"
+              min="0"
+              max="1"
+              value={recForm.score}
+              onChange={onRecChange}
+              placeholder="Score (0–1)"
+              required
+            />
+
+            <button className="db-btn db-btn--primary" type="submit" disabled={recLoading}>
+              {recLoading ? 'Saving…' : 'Save Recommendation'}
+            </button>
+          </form>
+        </section>
+
+        {/* Recent Recommendations */}
         <section className="db-card db-card--half">
           <div className="db-card__head"><h3 className="db-card__title">Recent Recommendations</h3></div>
           {recs.length ? (

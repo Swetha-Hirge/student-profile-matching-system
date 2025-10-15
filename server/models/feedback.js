@@ -1,35 +1,50 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/sequelize');
-const Recommendation = require('./recommendation');
-const Student = require('./student');
-const Activity = require('./activity');
+// server/models/feedback.js
+module.exports = (sequelize, DataTypes) => {
+  const Feedback = sequelize.define('Feedback', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
 
-const Feedback = sequelize.define('Feedback', {
-  id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    // FK to Recommendation
+    recommendationId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      field: 'recommendationId',
+      references: { model: 'Recommendations', key: 'id' },
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE',
+    },
 
-  // who/what this feedback is for
-  recommendationId: { type: DataTypes.INTEGER, allowNull: false },
-  studentId:        { type: DataTypes.INTEGER, allowNull: false },
-  activityId:       { type: DataTypes.INTEGER, allowNull: false },
+    // FK to Student (the student who left the feedback)
+    studentId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      field: 'studentId',
+      references: { model: 'Students', key: 'id' },
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE',
+    },
 
-  // feedback content
-  rating:  { type: DataTypes.INTEGER, allowNull: false, validate: { min: 1, max: 5 } },
-  helpful: { type: DataTypes.BOOLEAN, defaultValue: null }, // optional thumbs-up
-  comment: { type: DataTypes.TEXT },
+    rating: { type: DataTypes.INTEGER, allowNull: true },     // 1..5
+    helpful: { type: DataTypes.BOOLEAN, allowNull: true },     // true/false
+    difficulty: {                                              // 'too_easy' | 'just_right' | 'too_hard'
+      type: DataTypes.ENUM('too_easy', 'just_right', 'too_hard'),
+      allowNull: true,
+    },
+    comment: { type: DataTypes.TEXT, allowNull: true },
+  }, {
+    tableName: 'Feedback',
+    timestamps: true,
+  });
 
-  createdBy: {                                     // who submitted
-    type: DataTypes.ENUM('student', 'teacher', 'admin'),
-    allowNull: false,
-    defaultValue: 'student'
-  }
-}, {
-  tableName: 'Feedback',
-  timestamps: true
-});
+  Feedback.associate = (models) => {
+    Feedback.belongsTo(models.Recommendation, {
+      foreignKey: 'recommendationId',
+      as: 'recommendation',
+    });
+    Feedback.belongsTo(models.Student, {
+      foreignKey: 'studentId',
+      as: 'student',
+    });
+  };
 
-// Associations
-Feedback.belongsTo(Recommendation, { foreignKey: 'recommendationId' });
-Feedback.belongsTo(Student,        { foreignKey: 'studentId' });
-Feedback.belongsTo(Activity,       { foreignKey: 'activityId' });
-
-module.exports = Feedback;
+  return Feedback;
+};

@@ -1,52 +1,41 @@
+// server/routes/feedbackRoutes.js
 const express = require('express');
 const router = express.Router();
-const { verifyToken, authorizeRole } = require('../middleware/auth');
-const ctrl = require('../controllers/feedbackController');
 
-// Create feedback for a recommendation
+const { verifyToken, authorizeRole } = require('../middleware/auth');
+const feedbackController = require('../controllers/feedbackController');
+
+router.post(
+  '/:id/feedback',
+  verifyToken,
+  authorizeRole('student'),
+  feedbackController.createFeedback
+);
+
+// Student creates/updates their own feedback for a recommendation
 router.post(
   '/recommendations/:id/feedback',
   verifyToken,
-  authorizeRole(['student', 'teacher', 'admin']),
-  ctrl.createForRecommendation
+  authorizeRole('student'),
+  feedbackController.createOrUpdateMine
 );
 
-// List feedback for a recommendation
+// Get feedback on a recommendation
+//  - student: only their own feedback record (if exists)
+//  - teacher/admin: all feedback for that recommendation (paginated)
 router.get(
   '/recommendations/:id/feedback',
   verifyToken,
   authorizeRole(['student', 'teacher', 'admin']),
-  ctrl.listForRecommendation
+  feedbackController.getForRecommendation
 );
 
-// Student feedback history
-router.get(
-  '/students/:studentId/feedback',
-  verifyToken,
-  authorizeRole(['student', 'teacher', 'admin']),
-  ctrl.listForStudent
-);
-
-// Activity aggregate summary
+// Aggregate (teacher/admin): satisfaction summary for an activity
 router.get(
   '/activities/:activityId/feedback/summary',
-  verifyToken, // or open it up if you want
-  authorizeRole(['teacher', 'admin']), // relax if needed
-  ctrl.summaryForActivity
-);
-
-// Update / Delete
-router.put(
-  '/feedback/:id',
   verifyToken,
-  authorizeRole(['student', 'teacher', 'admin']),
-  ctrl.update
-);
-router.delete(
-  '/feedback/:id',
-  verifyToken,
-  authorizeRole(['admin']),
-  ctrl.remove
+  authorizeRole(['teacher', 'admin']),
+  feedbackController.activitySummary
 );
 
 module.exports = router;
